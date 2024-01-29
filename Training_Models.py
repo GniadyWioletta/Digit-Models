@@ -1,0 +1,106 @@
+import numpy as np
+import warnings
+import pickle
+from Saving_GMM_Models import Save_Model
+from MFCC_Test_Saving import Save_Test
+import shutil
+import pathlib
+
+
+warnings.filterwarnings('ignore')
+
+class Parameters(object):
+
+    def __init__(self, if_d, winstep, winlen, nfilt, nfft, ceplifter, N, components, max_iter, random_state):
+        self.if_d = if_d #Delta. Default is "" /"", "Delta", "DeltaDelta"
+
+        self.winstep = winstep #the step between successive windows in seconds. Default is 0.01s (10 milliseconds)
+        self.winlen = winlen #the length of the analysis window in seconds. Default is 0.025s (25 milliseconds)
+        self.nfilt = nfilt #the number of filters in the filterbank, default 26.
+        self.nfft = nfft #the FFT size. Default is 512.
+        self.ceplifter = ceplifter #apply a lifter to final cepstral coefficients. 0 is no lifter. Default is 22.
+
+        self.components = components
+        self.max_iter = max_iter #The number of EM iterations to perform. Default is 100
+        self.random_state = random_state #If int, random_state is the seed used by the random number generator;
+        # If RandomState instance, random_state is the random number generator;
+        # If None, the random number generator is the RandomState instance used by np.random.
+
+
+def OpenFile(type, num, index=None):
+    if type=="train":
+        with open('GMM_Models_temp/GMM_%s.pkl' %(num), 'rb') as file:  #read
+            data = pickle.load(file)
+    elif type=="test":
+        with open('MFCC_test_temp/MFCC_test_%s_%s.pkl' %(num,index), 'rb') as file:  #read
+            data = pickle.load(file)
+    return data
+
+def WhatClassIsThat(prob):
+    max = np.max(prob)
+    index_max = np.argmax(prob)
+    return max, index_max
+
+def Likelihood(clasificator, data):
+    lh = clasificator.score(data)
+    return lh
+
+def Probability_Bayes(lh_x_ci, pc):
+    norm = 0 # -> normalization
+    for lh in range(0,len(lh_x_ci)): #lh_x_ci -> likelihood
+        lh_x_ci[lh] = np.exp(lh_x_ci[lh])
+        norm += pc * lh_x_ci[lh]
+    p_c_x = []
+    for lh in lh_x_ci:
+        x = lh*pc/ norm
+        p_c_x = np.append(p_c_x, x) #probability gor each class
+    return p_c_x
+
+def main(parameters):
+    series_nr = 2 # series_nr is a nr of the line of test_series.txt file
+   # parameters = Parameters("", 0.03, 0.01, 26, 512, 22, 2, 8, 100, None)  # Default
+    Save_Model(parameters, series_nr)
+    Save_Test(parameters, series_nr)
+
+    rr = 0
+    num_speakers = 4
+    files = 10 * num_speakers
+    for number in range(0,10): #Number of numbers
+        for index in range(0,num_speakers): #Number of testing speakers
+            lh_x_ci = []
+            mfcc_speaker = OpenFile("test",number, index)
+            for i in range(0,10): #Number of classificators
+                lh_x_ci = np.append(lh_x_ci, Likelihood((OpenFile("train",i)), mfcc_speaker))
+                #The MFCC coefs are opening of each number (and each speaker->test)
+                #Then it is making gmm of the train coefs
+                #The likelihood is computing from the model and testing coefs
+                #The value of likelihood is given to vector
+
+
+            #Bayes Probability for each Speaker of each number
+            pc = 1/len(lh_x_ci)
+            [perc, numb]= WhatClassIsThat(Probability_Bayes(lh_x_ci, pc))
+            #The function gives as the probability in percents which number it "thinks" it is.
+
+            if (numb==number):
+                rr+=1 #recognition ratio
+            # else:
+                # print("There is %s percent that the number spoken is %s." %(round(perc*100,1), numb))
+                # print("In reality the spoken number is %s " %(number))
+                # print(" ") #Potem poszukam komendy na odstep
+
+
+    # print("The recognition ratio is %s percent" %(rr*100/files))
+
+
+    shutil.rmtree('GMM_Models_temp')
+    shutil.rmtree('MFCC_test_temp')
+
+    pathlib.Path('GMM_Models_temp').mkdir(parents=True, exist_ok=True)
+    pathlib.Path('MFCC_test_temp').mkdir(parents=True, exist_ok=True)
+
+    return rr*100/files
+
+
+if __name__ == '__main__':
+    main()
